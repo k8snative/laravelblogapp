@@ -1,0 +1,47 @@
+version: '3'
+
+services:
+  php-fpm:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+    command: sh -c "composer install && chmod -R 777 storage/ && php-fpm -D && nginx -g 'daemon off;'"
+    image: laravel-app
+    container_name: laravel_app2
+    restart: unless-stopped
+    tty: true
+    environment:
+      SERVICE_NAME: app
+      SERVICE_TAGS: dev
+    working_dir: /var/www/html
+    ports:
+      - "8090:8080"
+    volumes:
+      - ./:/var/www/html
+      - laraveldata:/var/www/html/storage
+  mysql2:
+    image: mysql:8.0.3
+    container_name: mysql2
+    restart: unless-stopped
+    tty: true
+    ports:
+      - "3308:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: mysql
+    volumes:
+      - dbdata:/var/lib/mysql
+      - ./my_custom.cnf:/etc/mysql/conf.d/my_custom.cnf
+
+ # redis:
+ #   image: redis:latest
+ #   command: redis-server --appendonly yes
+ #   volumes:
+ #     - .docker/redis/data:/data
+ #   ports:
+ #     - 6380:6379
+
+volumes:
+  dbdata:
+    driver: local
+  laraveldata:
+    driver: local
