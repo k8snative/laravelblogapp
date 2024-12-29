@@ -39,7 +39,7 @@ services:
  #     - .docker/redis/data:/data
  #   ports:
  #     - 6380:6379
-
+#Add this to trigger the pipeline
 volumes:
   dbdata:
     driver: local
