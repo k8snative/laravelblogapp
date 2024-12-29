@@ -1,0 +1,84 @@
+version: 0.2
+phases:
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR....
+      - aws --version
+      - ecrvalue=$(aws ssm get-parameter --region $AWS_REGION --name "/msenv/ecrdev" --with-decryption --query "Parameter.Value" --output text)
+      - echo '{$ecrvalue}'      
+      - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ecrvalue
+      - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+      - IMAGE_TAG=${COMMIT_HASH:=latest}     
+      - echo "Writing environment variables to .env file..."       
+      - |
+        aws ssm get-parameters-by-path --region $AWS_REGION --path "/ms/dev" --with-decryption --query "Parameters[].{Name: Name, Value: Value}" --output json > parameters.json                
+      - echo "Formatting parameters and writing to .env file..."
+      - cat parameters.json | jq -r '.[] | "\(.Name[8:])=\(.Value)"' > .env
+      - |
+        aws secretsmanager --region $AWS_REGION get-secret-value --secret-id "blogappRDSsecret" --query "SecretString" --output text > secrets.txt
+        
+      - sed -i 's/"username"/"DB_USERNAME"/g; s/"password"/"DB_PASSWORD"/g' secrets.txt
+      
+      - jq -r 'to_entries[] | "\(.key) = \(.value)"' < secrets.txt >> .env
+      
+      - cat .env
+      - sed -i 's|php:8.2-fpm|public.ecr.aws/d9x3e7f2/php-8.2fpm|g' ./docker/php/Dockerfile
+      - sed -i 's|composer:latest|public.ecr.aws/d9x3e7f2/composer:latest|g' ./docker/php/Dockerfile
+      - cat ./docker/php/Dockerfile
+      # - sed -i '/cp scripts\/pre-commit .git\/hooks\/pre-commit/d' scripts/setup.sh
+      # - sed -i '/chmod +x .git\/hooks\/pre-commit/d' scripts/setup.sh
+      # - echo 'echo "hello world"' >> scripts/setup.sh
+      # - cat ./scripts/setup.sh
+      - |
+        touch start.sh
+        echo '#!/bin/sh' >> start.sh
+        echo 'composer install' >> start.sh
+        echo 'chmod -R 777 storage/' >> start.sh
+        echo 'chown -R www-data:www-data storage/' >> start.sh
+        echo 'php artisan migrate' >> start.sh
+        echo 'php artisan config:clear' >> start.sh
+        echo 'php artisan cache:clear' >> start.sh
+        echo 'php artisan route:clear' >> start.sh
+        echo 'chmod 644 /etc/cron.d/laravel-cron' >> start.sh
+        echo 'service cron start' >> start.sh
+        echo 'supervisord -c /etc/supervisor/conf.d/supervisord.conf -n &' >> start.sh
+        echo 'sleep 5' >> start.sh
+        echo 'php-fpm -D' >> start.sh
+        echo 'nginx -g "daemon off;"' >> start.sh
+        chmod +x start.sh
+        ls -la start.sh
+        cat start.sh
+      
+  build:
+    commands:
+      - echo Build started on `date`
+      - echo Building the Docker image...
+      
+      - docker build -t $ecrvalue:latest -f ./docker/php/Dockerfile .
+      - docker tag $ecrvalue:latest $ecrvalue:$IMAGE_TAG
+  post_build:
+    commands:
+      
+      - echo Build completed on `date`
+      - echo Pushing to repo
+      - docker push $ecrvalue:latest
+      - docker push $ecrvalue:$IMAGE_TAG
+      - echo Writing image definitions file...
+      - printf '{"ImageURI":"%s"}' $ecrvalue:$IMAGE_TAG > imagedefinitions.json
+      - |
+         cat <<EOF > imagedefinitions.json
+         [
+           {
+             "name": "myblogapp",
+             "imageUri": "$ecrvalue:$IMAGE_TAG"
+           }
+         ]
+         EOF
+      - cat imagedefinitions.json  # For debugging purposes
+
+
+artifacts:
+  files:
+    
+    - imagedefinitions.json
+    
