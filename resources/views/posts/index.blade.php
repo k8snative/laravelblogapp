@@ -9,7 +9,7 @@
 <body>
     <div class="container mt-5">
         <h1 class="mb-4">Posts just for test</h1>
-        <a href="{{ route('posts.create') }}" class="btn btn-primary mb-4">Create New Post</a>
+        <a href="{{ route('posts.create') }}" class="btn btn-danger mb-4">Create New Post</a>
         @if(session('success'))
             <div class="alert alert-success">{{ session('success') }}</div>
         @endif
